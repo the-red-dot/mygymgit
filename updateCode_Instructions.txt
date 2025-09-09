@@ -1,0 +1,6 @@
+My project code is divided into clearly marked sections using comments like:
+// ─── Section 6: DB Operations (Save, Fetch, Remove) ───
+and
+// ─── End Section 6 ───
+
+When I ask you to update something (e.g. “save items” logic), give me the full updated version of that section from start to end, even if only part of it changes.

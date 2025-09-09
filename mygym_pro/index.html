@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <title>תוכנית Upper/Lower – מעקב אימונים</title>
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Chart.js נטען ראשון וב- defer כדי לא לחסום רינדור ולשמור על הסדר -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+</head>
+<body>
+  <!-- כפתור בורגר ושכבת רקע -->
+  <button id="menuBtn" class="burger" aria-label="פתח תפריט ימים" aria-controls="sidebar" aria-expanded="false">☰</button>
+  <div id="scrim" class="scrim" hidden></div>
+
+  <div class="app">
+    <aside id="sidebar" class="sidebar" role="dialog" aria-modal="true" aria-label="תפריט ימים">
+      <div class="brand" role="banner">
+        <div class="dot" aria-hidden="true"></div>
+        <div>
+          <div class="brand-title">UPPER/LOWER – Tracker</div>
+          <small class="brand-sub">דארק מוד • שמירה מקומית</small>
+        </div>
+      </div>
+      <nav class="nav" id="dayNav" role="tablist" aria-label="ימי האימון"></nav>
+    </aside>
+
+    <main class="content">
+      <div class="day-head">
+        <div class="day-title">
+          <h1 class="title" id="dayTitle">—</h1>
+          <div class="nav-arrows">
+            <button class="btn" id="prevBtn" aria-label="יום קודם">◀ יום קודם</button>
+            <button class="btn" id="nextBtn" aria-label="יום הבא">יום הבא ▶</button>
+          </div>
+        </div>
+        <div class="muscles" id="muscles">—</div>
+        <div class="pill" id="splitInfo">Upper/Lower + קרדיו/קונדישנינג • 5 ימים • שישי/שבת מנוחה</div>
+      </div>
+
+      <div class="exercises" id="exercises"></div>
+
+      <div class="footer">
+        טיפ: לחץ על “השתמש” ליד אלטרנטיבה כדי לקבוע את התרגיל הפעיל. לוגים וגרפים נשמרים מקומית (localStorage).
+      </div>
+    </main>
+  </div>
+
+  <!-- Load data first, then app logic (same folder, use forward slashes) -->
+  <script src="./program-data.js" defer></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>

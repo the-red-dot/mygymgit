@@ -1,0 +1,938 @@
+Folder: mygym_pro
+    File: app.js
+        Code:
+        /* ==========================================================================
+           app.js — UPPER/LOWER Tracker (RTL)
+           ========================================================================== */
+        
+        // ─── Section 1: Data Import (from program-data.js) ──────────────────────────
+        "use strict";
+        const { FEEL, program } = window.ProgramData || {};
+        if (!program) console.error("Program data missing — make sure program-data.js is loaded before app.js");
+        // ─── End Section 1 ──────────────────────────────────────────────────────────
+        
+        
+        
+        // ─── Section 2: DB Operations (localStorage) ────────────────────────────────
+        const KEY = "ul_tracker_state_v2_no_video";
+        const state = JSON.parse(localStorage.getItem(KEY) || "{}");
+        
+        function saveState(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+        function ensureExerciseState(exId){
+          if(!state[exId]) state[exId] = { active:null, logs:[] };
+          return state[exId];
+        }
+        // ─── End Section 2 ───────────────────────────────────────────────────────────
+        
+        
+        
+        // ─── Section 3: DOM Handles & Global UI State ───────────────────────────────
+        const dayNav      = document.getElementById("dayNav");
+        const dayTitle    = document.getElementById("dayTitle");
+        const muscles     = document.getElementById("muscles");
+        const exercisesEl = document.getElementById("exercises");
+        const prevBtn     = document.getElementById("prevBtn");
+        const nextBtn     = document.getElementById("nextBtn");
+        
+        // Off-canvas (burger) elements
+        const sidebar = document.getElementById("sidebar");
+        const menuBtn = document.getElementById("menuBtn");
+        const scrim   = document.getElementById("scrim");
+        
+        let currentDayIdx = 0;
+        // ─── End Section 3 ───────────────────────────────────────────────────────────
+        
+        
+        
+        // ─── Section 4: Mobile Off-Canvas Menu ──────────────────────────────────────
+        function openMenu(){
+          if(!sidebar || !menuBtn || !scrim) return;
+          sidebar.classList.add("is-open");
+          sidebar.setAttribute("aria-hidden","false");
+          menuBtn.setAttribute("aria-expanded","true");
+          scrim.hidden = false;
+          document.body.classList.add("no-scroll");
+        }
+        function closeMenu(){
+          if(!sidebar || !menuBtn || !scrim) return;
+          sidebar.classList.remove("is-open");
+          sidebar.setAttribute("aria-hidden","true");
+          menuBtn.setAttribute("aria-expanded","false");
+          scrim.hidden = true;
+          document.body.classList.remove("no-scroll");
+        }
+        function toggleMenu(){
+          if(!sidebar) return;
+          sidebar.classList.contains("is-open") ? closeMenu() : openMenu();
+        }
+        menuBtn && menuBtn.addEventListener("click", toggleMenu);
+        scrim   && scrim.addEventListener("click", closeMenu);
+        window.addEventListener("keydown", (e)=>{ if(e.key==="Escape") closeMenu(); });
+        window.addEventListener("resize", ()=>{ if(window.innerWidth > 1024) closeMenu(); });
+        // ─── End Section 4 ───────────────────────────────────────────────────────────
+        
+        
+        
+        // ─── Section 5: Render – Top Day Navigation ─────────────────────────────────
+        function renderNav(){
+          dayNav.innerHTML = "";
+          program.forEach((d,i)=>{
+            const btn = document.createElement("button");
+            btn.setAttribute("role","tab");
+            btn.setAttribute("aria-selected", i===currentDayIdx ? "true" : "false");
+            btn.innerHTML = `<div style="font-weight:700">${d.dayLabel}</div><small>${d.muscles}</small>`;
+            btn.className = i===currentDayIdx ? "active" : "";
+            btn.onclick = ()=>{
+              currentDayIdx = i;
+              renderDay();
+              renderNav();
+              closeMenu(); // close off-canvas after choosing a day
+            };
+            dayNav.appendChild(btn);
+          });
+        }
+        // ─── End Section 5 ───────────────────────────────────────────────────────────
+        
+        
+        
+        // ─── Section 6: Render – Day View (cards, alternatives, logs, chart) ───────
+        function renderDay(){
+          const day = program[currentDayIdx];
+          dayTitle.textContent = day.dayLabel;
+          muscles.textContent  = day.muscles;
+          exercisesEl.innerHTML = "";
+        
+          day.exercises.forEach(ex=>{
+            const exState = ensureExerciseState(ex.id);
+            const active  = exState.active || ex.active;
+        
+            const card = document.createElement("div");
+            card.className = "card";
+        
+            const head = document.createElement("div");
+            head.className = "card-head";
+            head.innerHTML = `
+              <h3 class="ex-title">${ex.title}</h3>
+              <div class="meta">
+                <span class="tag">סטים×חזרות/משך: <b>${ex.setsReps}</b></span>
+                <span class="tag">תרגיל פעיל: <b>${active}</b></span>
+                <span class="tag">הרגשה: ${ex.feel || "בקרה על טכניקה ונשימה"}</span>
+                <span class="tag">התקדמות: ${ex.progress || "עלה נפח/קושי כשהסטים יציבים"}</span>
+              </div>
+            `;
+            card.appendChild(head);
+        
+            const grid = document.createElement("div");
+            grid.className = "grid";
+        
+            // Alternatives
+            const altSec = document.createElement("div");
+            altSec.className = "section";
+            altSec.innerHTML = `<h4>אלטרנטיבות ובחירת תרגיל</h4>`;
+        
+            const alts = document.createElement("div");
+            alts.className = "alts";
+        
+            ex.alts.forEach(alt=>{
+              const row = document.createElement("div");
+              row.className = "alt";
+              row.innerHTML = `
+                <div>
+                  <div class="name">${alt.name}</div>
+                  <div class="kind">${alt.kind}</div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+                  <a class="btn ghost" href="https://www.youtube.com/results?search_query=${encodeURIComponent(alt.yt)}" target="_blank" rel="noopener">יוטיוב</a>
+                  <button class="btn use ${active===alt.name?'primary':''}">השתמש</button>
+                </div>
+              `;
+              row.querySelector(".use").onclick = ()=>{
+                exState.active = alt.name;
+                saveState();
+                renderDay();
+              };
+              alts.appendChild(row);
+            });
+        
+            const feelBox = document.createElement("div");
+            feelBox.className = "feel";
+            feelBox.textContent = "מה להרגיש: " + (ex.feel || "") + (ex.progress ? " • מתי לעלות: " + ex.progress : "");
+            altSec.appendChild(alts);
+            altSec.appendChild(feelBox);
+            grid.appendChild(altSec);
+        
+            // Logger + chart
+            const logSec = document.createElement("div");
+            logSec.className = "section";
+            logSec.innerHTML = `<h4>לוג משקלים/משך + גרף התקדמות</h4>`;
+        
+            const logRow = document.createElement("div");
+            logRow.className = "log-row";
+            logRow.innerHTML = `
+              <input type="date" id="date-${ex.id}" />
+              <input type="number" id="w-${ex.id}" placeholder="משקל (ק״ג) / עוצמה" step="0.5" />
+              <input type="number" id="r-${ex.id}" placeholder="חזרות / זמן (ש׳)" step="1" />
+              <button class="btn primary" id="add-${ex.id}">הוסף לוג</button>
+            `;
+            logSec.appendChild(logRow);
+        
+            const hint = document.createElement("div");
+            hint.className = "hint";
+            hint.textContent = "הגרף מציג הערכת 1RM (Epley) כאשר יש משקל+חזרות. באירובי, ניתן להזין זמן/עוצמה למעקב מגמה.";
+            logSec.appendChild(hint);
+        
+            const canvas = document.createElement("canvas");
+            canvas.id = "chart-" + ex.id;
+            canvas.height = 140;
+            logSec.appendChild(canvas);
+        
+            const tableWrap = document.createElement("div");
+            tableWrap.className = "table-wrap";
+            tableWrap.style.marginTop = "10px";
+            tableWrap.innerHTML = `
+              <table class="logs-table">
+                <thead><tr><th>תאריך</th><th>משקל/עוצמה</th><th>חזרות/זמן</th><th>1RM משוער*</th></tr></thead>
+                <tbody id="tb-${ex.id}"></tbody>
+              </table>
+              <div class="hint">* עבור אירובי הערך לא ישים — ניתן להשאיר ריק או 0.</div>
+            `;
+            logSec.appendChild(tableWrap);
+        
+            grid.appendChild(logSec);
+            card.appendChild(grid);
+            exercisesEl.appendChild(card);
+        
+            // Per-exercise helpers
+            const dateEl = logRow.querySelector("#date-"+ex.id);
+            const wEl    = logRow.querySelector("#w-"+ex.id);
+            const rEl    = logRow.querySelector("#r-"+ex.id);
+            const addBtn = logRow.querySelector("#add-"+ex.id);
+            const tb     = tableWrap.querySelector("#tb-"+ex.id);
+        
+            if(!dateEl.value){
+              const d = new Date();
+              dateEl.value = d.toISOString().slice(0,10);
+            }
+        
+            function epley1RM(w,r){
+              const W = parseFloat(w); const R = parseInt(r,10);
+              if (isNaN(W) || isNaN(R) || W<=0 || R<=0) return "";
+              return Math.round((W * (1 + R/30)) * 10) / 10;
+            }
+        
+            function renderLogs(){
+              const logs = (state[ex.id]?.logs || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
+              tb.innerHTML = logs.map(l=>{
+                const est = epley1RM(l.weight,l.reps);
+                return `<tr><td>${l.date}</td><td>${l.weight ?? ""}</td><td>${l.reps ?? ""}</td><td>${est===""?"-":est}</td></tr>`;
+              }).join("") || `<tr><td colspan="4" style="color:var(--muted)">אין עדיין לוגים</td></tr>`;
+        
+              const ctx = canvas.getContext('2d');
+              const labels = logs.map(l=>l.date);
+              const data   = logs.map(l=>epley1RM(l.weight,l.reps) || null);
+        
+              if(canvas._chart) canvas._chart.destroy();
+              canvas._chart = new Chart(ctx,{
+                type:'line',
+                data:{ labels, datasets:[{ label:'1RM משוער (אם יש)', data, tension:.25, pointRadius:3 }] },
+                options:{
+                  responsive:true,
+                  maintainAspectRatio:false,
+                  plugins:{ legend:{ labels:{ color:"#cfe4ff" } } },
+                  scales:{
+                    x:{ ticks:{ color:"#a6bfd6" }, grid:{ color:"#223243" } },
+                    y:{ ticks:{ color:"#a6bfd6" }, grid:{ color:"#223243" } }
+                  }
+                }
+              });
+            }
+        
+            addBtn.onclick = ()=>{
+              const date   = dateEl.value;
+              const weight = (wEl.value===""?null:parseFloat(wEl.value));
+              const reps   = (rEl.value===""?null:parseInt(rEl.value,10));
+              if(!date){ alert("אנא מלא תאריך."); return; }
+              if(weight===null && reps===null){ alert("הזן לפחות משקל/עוצמה או חזרות/זמן."); return; }
+              const st = ensureExerciseState(ex.id);
+              st.logs.push({date, weight, reps});
+              saveState();
+              renderLogs();
+              rEl.value="";
+            };
+        
+            renderLogs();
+          });
+        
+          prevBtn.disabled = currentDayIdx===0;
+          nextBtn.disabled = currentDayIdx===program.length-1;
+        }
+        // ─── End Section 6 ───────────────────────────────────────────────────────────
+        
+        
+        
+        // ─── Section 7: Wiring & Init ───────────────────────────────────────────────
+        prevBtn.onclick = ()=>{ if(currentDayIdx>0){ currentDayIdx--; renderDay(); renderNav(); } };
+        nextBtn.onclick = ()=>{ if(currentDayIdx<program.length-1){ currentDayIdx++; renderDay(); renderNav(); } };
+        
+        renderNav();
+        renderDay();
+        
+        document.addEventListener('keydown', (e)=>{
+          if (e.key === 'ArrowLeft') nextBtn.click();
+          if (e.key === 'ArrowRight') prevBtn.click();
+        });
+        // ─── End Section 7 ───────────────────────────────────────────────────────────
+    File: index.html
+        Code:
+        <!doctype html>
+        <html lang="he" dir="rtl">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+          <title>תוכנית Upper/Lower – מעקב אימונים</title>
+          <link rel="stylesheet" href="styles.css" />
+          <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        </head>
+        <body>
+          <!-- כפתור בורגר ושכבת רקע -->
+          <button id="menuBtn" class="burger" aria-label="פתח תפריט ימים" aria-controls="sidebar" aria-expanded="false">☰</button>
+          <div id="scrim" class="scrim" hidden></div>
+        
+          <div class="app">
+            <aside id="sidebar" class="sidebar" role="dialog" aria-modal="true" aria-label="תפריט ימים">
+              <div class="brand" role="banner">
+                <div class="dot" aria-hidden="true"></div>
+                <div>
+                  <div class="brand-title">UPPER/LOWER – Tracker</div>
+                  <small class="brand-sub">דארק מוד • שמירה מקומית</small>
+                </div>
+              </div>
+              <nav class="nav" id="dayNav" role="tablist" aria-label="ימי האימון"></nav>
+            </aside>
+        
+            <main class="content">
+              <div class="day-head">
+                <div class="day-title">
+                  <h1 class="title" id="dayTitle">—</h1>
+                  <div class="nav-arrows">
+                    <button class="btn" id="prevBtn" aria-label="יום קודם">◀ יום קודם</button>
+                    <button class="btn" id="nextBtn" aria-label="יום הבא">יום הבא ▶</button>
+                  </div>
+                </div>
+                <div class="muscles" id="muscles">—</div>
+                <div class="pill" id="splitInfo">Upper/Lower + קרדיו/קונדישנינג • 5 ימים • שישי/שבת מנוחה</div>
+              </div>
+        
+              <div class="exercises" id="exercises"></div>
+        
+              <div class="footer">
+                טיפ: לחץ על “השתמש” ליד אלטרנטיבה כדי לקבוע את התרגיל הפעיל. לוגים וגרפים נשמרים מקומית (localStorage).
+              </div>
+            </main>
+          </div>
+        
+          <!-- Load data first, then app logic -->
+          <script src="program-data.js"></script>
+          <script src="app.js"></script>
+        </body>
+        </html>
+    File: program-data.js
+        Code:
+        /* ==========================================================================
+           program-data.js — Data for UPPER/LOWER Tracker (RTL)
+           Exposes: window.ProgramData = { FEEL, program }
+           ========================================================================== */
+        
+        // ─── Section A: FEEL constants ───────────────────────────────────────────────
+        const FEEL = {
+          strength: "כבד, כמעט כשל בחזרה האחרונה, טכניקה נקייה (RPE≈9)",
+          hyper: "חזרות אחרונות קשות אך נשלטות; נשארות עוד 1–2 במיכל (RPE≈7–8)",
+          endurance: "שריפה חזקה ב־2 החזרות האחרונות; כמעט כשל טכני נקי"
+        };
+        // ─── End Section A ───────────────────────────────────────────────────────────
+        
+        
+        // ─── Section B: Program Data (Days, Exercises, Alternatives) ────────────────
+        const program = [
+          {
+            id:"sun-lowerA",
+            dayLabel:"ראשון – רגליים",
+            muscles:"ירך קדמית, ירך אחורית, עכוז, תאומים",
+            exercises:[
+              {
+                id:"back-squat",
+                title:"Back Squat / Leg Press",
+                active:"Back Squat",
+                setsReps:"4×5–8",
+                feel: FEEL.strength,
+                progress:"4×8 יציב → +2.5–5 ק״ג",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Back Squat", yt:"Back Squat"},
+                  {kind:"🎛️ מכשיר", name:"Leg Press Machine", yt:"Leg Press Machine"},
+                  {kind:"🏋️ חופשי", name:"Goblet Squat", yt:"Goblet Squat"}
+                ]
+              },
+              {
+                id:"rdl",
+                title:"Romanian Deadlift / Seated Leg Curl",
+                active:"Romanian Deadlift",
+                setsReps:"3×8–10",
+                feel: FEEL.hyper,
+                progress:"כשהגעת 10/10/10 חלק → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Romanian Deadlift", yt:"Romanian Deadlift"},
+                  {kind:"🎛️ מכשיר", name:"Seated Leg Curl Machine", yt:"Seated Leg Curl"},
+                  {kind:"🎛️ מכשיר", name:"Lying Leg Curl Machine", yt:"Lying Leg Curl"}
+                ]
+              },
+              {
+                id:"lunges",
+                title:"Walking Lunges / Leg Extension",
+                active:"Walking Lunges",
+                setsReps:"3×10 לכל רגל / 12–15 במכשיר",
+                feel: FEEL.hyper,
+                progress:"כשהגעת לטווח העליון בכל הסטים → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Walking Lunges", yt:"Walking Lunges"},
+                  {kind:"🎛️ מכשיר", name:"Leg Extension Machine", yt:"Leg Extension Machine"},
+                  {kind:"🏋️ חופשי", name:"Split Squat", yt:"Split Squat"}
+                ]
+              },
+              {
+                id:"calf",
+                title:"Calf Raises (Standing/Seated)",
+                active:"Standing Calf Raises",
+                setsReps:"4×12–15",
+                feel: FEEL.endurance,
+                progress:"קל ב־2 האחרונות? → לעלות מעט",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Standing Calf Raises", yt:"Standing Calf Raise"},
+                  {kind:"🎛️ מכשיר", name:"Calf Raise Machine", yt:"Seated Calf Raise"},
+                  {kind:"🎛️ מכשיר", name:"Leg Press Calf Press", yt:"Leg Press Calf Raise"}
+                ]
+              }
+            ]
+          },
+          {
+            id:"mon-upperA",
+            dayLabel:"שני – חזה, גב, כתפיים, ידיים",
+            muscles:"חזה, גב רחב/אמצעי, דלתא קדמית/אמצעית, בייספס/טרייספס",
+            exercises:[
+              {
+                id:"bench",
+                title:"Bench Press / Chest Press",
+                active:"Bench Press",
+                setsReps:"4×6–8",
+                feel: FEEL.hyper,
+                progress:"4×8 יציב → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Barbell Bench Press", yt:"Barbell Bench Press"},
+                  {kind:"🎛️ מכשיר", name:"Chest Press Machine", yt:"Chest Press Machine"},
+                  {kind:"🏋️ חופשי", name:"Dumbbell Bench Press", yt:"Dumbbell Bench Press"}
+                ]
+              },
+              {
+                id:"pull",
+                title:"Pull-Ups / Lat Pulldown",
+                active:"Pull-Ups",
+                setsReps:"4×8–12 או עד כשל",
+                feel:"קרוב לכשל; שליטה מלאה ללא נדנוד",
+                progress:"עברת 12 בקלות → הוסף משקל; קשה מדי → Pulldown",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Pull-Ups", yt:"Pull Ups"},
+                  {kind:"🎛️ מכשיר", name:"Lat Pulldown Machine", yt:"Lat Pulldown"},
+                  {kind:"🎛️ מכשיר", name:"Assisted Pull-Up Machine", yt:"Assisted Pull Up Machine"}
+                ]
+              },
+              {
+                id:"ohp",
+                title:"Overhead Press / Shoulder Press Machine",
+                active:"Overhead Press",
+                setsReps:"3×6–10",
+                feel: FEEL.hyper,
+                progress:"3×10 חלק → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Barbell Overhead Press", yt:"Barbell Overhead Press"},
+                  {kind:"🎛️ מכשיר", name:"Shoulder Press Machine", yt:"Shoulder Press Machine"},
+                  {kind:"🏋️ חופשי", name:"Dumbbell Shoulder Press", yt:"Dumbbell Shoulder Press"}
+                ]
+              },
+              {
+                id:"row-db",
+                title:"One-Arm Dumbbell Row / Seated Row",
+                active:"One-Arm Dumbbell Row",
+                setsReps:"3×8–10",
+                feel:"כיווץ בגב, לא משיכה ביד בלבד",
+                progress:"3×10 חלק → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"One-Arm Dumbbell Row", yt:"One Arm Dumbbell Row"},
+                  {kind:"🎛️ מכשיר", name:"Seated Row Machine", yt:"Seated Row Machine"},
+                  {kind:"🏋️ חופשי", name:"Chest Supported Row", yt:"Chest Supported Row"}
+                ]
+              },
+              {
+                id:"bi",
+                title:"Biceps Curls / Curl Machine",
+                active:"Dumbbell Biceps Curls",
+                setsReps:"3×10–12",
+                feel: FEEL.endurance,
+                progress:"קל בסוף? → לעלות מעט",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Dumbbell Biceps Curls", yt:"Dumbbell Bicep Curl"},
+                  {kind:"🎛️ מכשיר", name:"Biceps Curl Machine", yt:"Bicep Curl Machine"},
+                  {kind:"🏋️ חופשי", name:"EZ Bar Curl", yt:"EZ Bar Curl"}
+                ]
+              },
+              {
+                id:"tri",
+                title:"Dips / Triceps Pushdown",
+                active:"Triceps Dips",
+                setsReps:"3×10–12",
+                feel:"בסוף הסט הידיים רועדות, טווח מלא",
+                progress:"מעל 12 בקלות → הוסף משקל/התנגדות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Parallel Bar Dips", yt:"Triceps Dips"},
+                  {kind:"🎛️ מכשיר", name:"Cable Triceps Pushdown", yt:"Triceps Pushdown"},
+                  {kind:"🎛️ מכשיר", name:"Rope Pushdown", yt:"Rope Pushdown"}
+                ]
+              }
+            ]
+          },
+          {
+            id:"tue-cardio-cond",
+            dayLabel:"שלישי – קרדיו + Core & Conditioning",
+            muscles:"קרדיו, ליבה, סבולת שריר",
+            exercises:[
+              {
+                id:"cardio-liss",
+                title:"קרדיו – LISS",
+                active:"הליכה / אופניים / אליפטיקל",
+                setsReps:"20–30 דק׳ • דופק 120–140",
+                feel:"קצב דיבור בנוח; זיעה קלה",
+                progress:"העלה משך או שיפוע/התנגדות בהדרגה כשקל מדי",
+                alts:[
+                  {kind:"🚶 LISS", name:"הליכה (שיפוע קל)", yt:"Incline Walking Treadmill"},
+                  {kind:"🚴 LISS", name:"אופניים/אופניים נייחים", yt:"Stationary Bike LISS"},
+                  {kind:"🏃 LISS", name:"אליפטיקל", yt:"Elliptical Trainer LISS"}
+                ]
+              },
+              {
+                id:"cardio-hiit",
+                title:"קרדיו – HIIT",
+                active:"אופניים נייחים / מסילה",
+                setsReps:'8–10 ספרינטים × 30״ + 90״ מנוחה',
+                feel:"ספרינט חזק אך נשלט; שמור טכניקה",
+                progress:"הוסף ספרינט או שפר עוצמה כאשר כל הסטים יציבים",
+                alts:[
+                  {kind:"⚡ HIIT", name:"אופניים נייחים – ספרינטים", yt:"Stationary Bike Sprint Intervals"},
+                  {kind:"⚡ HIIT", name:"מסילה – ספרינטים", yt:"Treadmill Sprint Intervals"}
+                ]
+              },
+              {
+                id:"cond-sq",
+                title:"Bodyweight Squats / Leg Press קל",
+                active:"Bodyweight Squats",
+                setsReps:"3×15–20",
+                feel: FEEL.endurance,
+                progress:"הגעת 20×3 בקלות → עבר למכשיר קל/הוסף משקל גוף",
+                alts:[
+                  {kind:"🏋️ משקל גוף", name:"Bodyweight Squats", yt:"Bodyweight Squat"},
+                  {kind:"🎛️ מכשיר", name:"Leg Press Machine (קל)", yt:"Leg Press Machine Light"}
+                ]
+              },
+              {
+                id:"cond-push",
+                title:"Push-Ups / Chest Press Machine קל",
+                active:"Push-Ups",
+                setsReps:"3×10–15",
+                feel: FEEL.endurance,
+                progress:"3×15 יציב → הוסף קושי (גובה/משקל) או עבור למכשיר",
+                alts:[
+                  {kind:"🏋️ משקל גוף", name:"Push-Ups", yt:"Push Up Proper Form"},
+                  {kind:"🎛️ מכשיר", name:"Chest Press Machine (קל)", yt:"Chest Press Machine Light"}
+                ]
+              },
+              {
+                id:"cond-core-plank",
+                title:"Plank / Ab Crunch Machine",
+                active:"Plank",
+                setsReps:"3×30–60 שניות / או 12–15 חזרות במכונה",
+                feel:"בטן שורפת; גב ניטרלי",
+                progress:"הוסף זמן/התנגדות בהדרגה",
+                alts:[
+                  {kind:"🏋️ משקל גוף", name:"Plank", yt:"Plank Core Exercise"},
+                  {kind:"🎛️ מכשיר", name:"Ab Crunch Machine", yt:"Ab Crunch Machine"}
+                ]
+              },
+              {
+                id:"cond-core-mc",
+                title:"Mountain Climbers / Bicycle Crunch Machine (אם יש)",
+                active:"Mountain Climbers",
+                setsReps:"3×20–30 שניות",
+                feel:"דופק עולה; ליבה יציבה",
+                progress:"הארך זמן/מהירות כששולט",
+                alts:[
+                  {kind:"🏋️ משקל גוף", name:"Mountain Climbers", yt:"Mountain Climbers"},
+                  {kind:"🎛️ מכשיר", name:"Bicycle Crunch Machine", yt:"Ab Bicycle Machine"}
+                ]
+              },
+              {
+                id:"cond-core-hang",
+                title:"Hanging Leg Raises / Captain’s Chair",
+                active:"Hanging Leg Raises",
+                setsReps:"3×12–15",
+                feel:"בטן שורפת 🔥",
+                progress:"הוסף משקל/טמפו איטי כשקל",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Hanging Leg Raises", yt:"Hanging Leg Raise"},
+                  {kind:"🎛️ מכשיר", name:"Captain’s Chair", yt:"Captains Chair Leg Raise"}
+                ]
+              }
+            ]
+          },
+          {
+            id:"wed-lowerB",
+            dayLabel:"רביעי – רגליים + גב תחתון + ליבה",
+            muscles:"Hamstrings/Glutes/Core",
+            exercises:[
+              {
+                id:"dl",
+                title:"Deadlift / Back Extension",
+                active:"Deadlift",
+                setsReps:"4×3–6 (מכשיר: 12–15)",
+                feel: FEEL.strength,
+                progress:"4×6 יציב → +2.5–5 ק״ג",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Conventional Deadlift", yt:"Deadlift Conventional"},
+                  {kind:"🎛️ מכשיר", name:"Back Extension Machine", yt:"Back Extension Machine"},
+                  {kind:"🏋️ חופשי", name:"Trap Bar Deadlift", yt:"Trap Bar Deadlift"}
+                ]
+              },
+              {
+                id:"fsq",
+                title:"Front Squat / Leg Press",
+                active:"Front Squat",
+                setsReps:"3×6–8",
+                feel: FEEL.hyper,
+                progress:"3×8 חלק → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Front Squat", yt:"Front Squat"},
+                  {kind:"🎛️ מכשיר", name:"Leg Press Machine", yt:"Leg Press Machine"},
+                  {kind:"🏋️ חופשי", name:"Safety Bar Squat", yt:"Safety Bar Squat"}
+                ]
+              },
+              {
+                id:"bul",
+                title:"Bulgarian Split Squat / Leg Extension",
+                active:"Bulgarian Split Squat",
+                setsReps:"3×8–10 לכל רגל / 12–15 מכונה",
+                feel: FEEL.hyper,
+                progress:"הגעת לטווח העליון → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Bulgarian Split Squat", yt:"Bulgarian Split Squat"},
+                  {kind:"🎛️ מכשיר", name:"Leg Extension Machine", yt:"Leg Extension Machine"},
+                  {kind:"🏋️ חופשי", name:"Reverse Lunge", yt:"Reverse Lunge"}
+                ]
+              },
+              {
+                id:"hip",
+                title:"Hip Thrust / Glute Machine",
+                active:"Hip Thrust",
+                setsReps:"3×8–12",
+                feel:"כיווץ חזק בעכוז; גב ניטרלי",
+                progress:"3×12 חלק → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Barbell Hip Thrust", yt:"Barbell Hip Thrust"},
+                  {kind:"🎛️ מכשיר", name:"Glute Kickback Machine", yt:"Glute Kickback Machine"},
+                  {kind:"🏋️ חופשי", name:"Glute Bridge", yt:"Glute Bridge"}
+                ]
+              },
+              {
+                id:"core",
+                title:"Hanging Leg Raises / Ab Crunch Machine",
+                active:"Hanging Leg Raises",
+                setsReps:"3× עד כשל (או 12–15 במכונה)",
+                feel:"בטן שורפת; בלי לקשת את הגב",
+                progress:"קל מדי? הוסף משקל/האט טמפו",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Hanging Leg Raises", yt:"Hanging Leg Raise"},
+                  {kind:"🎛️ מכשיר", name:"Ab Crunch Machine", yt:"Ab Crunch Machine"},
+                  {kind:"🏋️ חופשי", name:"Ab Wheel Rollout", yt:"Ab Wheel Rollout"}
+                ]
+              }
+            ]
+          },
+          {
+            id:"thu-upperB",
+            dayLabel:"חמישי – חזה, גב, כתפיים (דגש חזה עליון/גב אמצעי)",
+            muscles:"Chest Upper, Mid-Back, Lats, Delts",
+            exercises:[
+              {
+                id:"incline",
+                title:"Incline Bench / Incline Chest Press",
+                active:"Incline Bench Press",
+                setsReps:"4×6–8",
+                feel: FEEL.hyper,
+                progress:"4×8 יציב → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Incline Barbell Bench Press", yt:"Incline Bench Press"},
+                  {kind:"🎛️ מכשיר", name:"Incline Chest Press Machine", yt:"Incline Chest Press Machine"},
+                  {kind:"🏋️ חופשי", name:"Incline Dumbbell Press", yt:"Incline Dumbbell Press"}
+                ]
+              },
+              {
+                id:"row-bb",
+                title:"Barbell Row / Seated Row",
+                active:"Barbell Row",
+                setsReps:"4×8–10",
+                feel:"גב מתכווץ; לא 'לזרוק' את המשקל",
+                progress:"4×10 חלק → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Barbell Row", yt:"Barbell Row"},
+                  {kind:"🎛️ מכשיר", name:"Seated Row Machine", yt:"Seated Row Machine"},
+                  {kind:"🏋️ חופשי", name:"T-Bar Row", yt:"T Bar Row"}
+                ]
+              },
+              {
+                id:"sp",
+                title:"DB Shoulder Press / Shoulder Machine",
+                active:"Dumbbell Shoulder Press",
+                setsReps:"3×8–10",
+                feel: FEEL.hyper,
+                progress:"3×10 חלק → לעלות",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Dumbbell Shoulder Press", yt:"Dumbbell Shoulder Press"},
+                  {kind:"🎛️ מכשיר", name:"Shoulder Press Machine", yt:"Shoulder Press Machine"},
+                  {kind:"🏋️ חופשי", name:"Arnold Press", yt:"Arnold Press"}
+                ]
+              },
+              {
+                id:"lat",
+                title:"Lat Pulldown / Pull-Ups",
+                active:"Lat Pulldown",
+                setsReps:"3×10–12",
+                feel:"קרוב לכשל; שליטה מלאה",
+                progress:"מעל 12 קל → לעלות נגד",
+                alts:[
+                  {kind:"🎛️ מכשיר", name:"Lat Pulldown Machine", yt:"Lat Pulldown"},
+                  {kind:"🏋️ חופשי", name:"Pull-Ups", yt:"Pull Ups"},
+                  {kind:"🎛️ מכשיר", name:"Assisted Pull-Up Machine", yt:"Assisted Pull Up Machine"}
+                ]
+              },
+              {
+                id:"lat-raise",
+                title:"Lateral Raises / Lateral Machine",
+                active:"Dumbbell Lateral Raises",
+                setsReps:"3×12–15",
+                feel: FEEL.endurance,
+                progress:"קל בסוף? → לעלות מעט",
+                alts:[
+                  {kind:"🏋️ חופשי", name:"Dumbbell Lateral Raise", yt:"Dumbbell Lateral Raise"},
+                  {kind:"🎛️ מכשיר", name:"Lateral Raise Machine", yt:"Lateral Raise Machine"},
+                  {kind:"🎛️ מכשיר", name:"Cable Lateral Raise", yt:"Cable Lateral Raise"}
+                ]
+              },
+              {
+                id:"facepull",
+                title:"Face Pulls (Pulley)",
+                active:"Face Pulls",
+                setsReps:"3×12–15",
+                feel:"אחורי כתף ושכמות; מרפקים החוצה",
+                progress:"לעלות התנגדות כשקל",
+                alts:[
+                  {kind:"🎛️ פולי", name:"Face Pull (Rope)", yt:"Face Pull Rope"},
+                  {kind:"🎛️ פולי", name:"Face Pull (Bar)", yt:"Face Pull Bar"},
+                  {kind:"🎛️ פולי", name:"High-to-Low Face Pull", yt:"High to Low Face Pull"}
+                ]
+              }
+            ]
+          }
+        ];
+        // ─── End Section B ───────────────────────────────────────────────────────────
+        
+        
+        // ─── Section C: Export to global (no module bundler required) ───────────────
+        window.ProgramData = { FEEL, program };
+        // ─── End Section C ───────────────────────────────────────────────────────────
+    File: styles.css
+        Code:
+        :root{
+          --bg:#0b0f14; --card:#121823; --muted:#8ea0b3; --text:#e8eef7;
+          --accent:#68c1ff; --accent-2:#7cffb2; --warn:#ffb86b; --danger:#ff6b6b;
+          --border:#203043; --shadow:0 10px 30px rgba(0,0,0,.45); --radius:14px;
+          --safe-top:env(safe-area-inset-top,0px); --safe-right:env(safe-area-inset-right,0px);
+          --safe-bottom:env(safe-area-inset-bottom,0px); --safe-left:env(safe-area-inset-left,0px);
+        }
+        
+        *{ box-sizing:border-box; }
+        html,body{ height:100%; }
+        html{ overflow-x:hidden; }
+        body{
+          margin:0; background:radial-gradient(circle at 20% 0%,#0d1620,#0b0f14);
+          color:var(--text);
+          font-family:system-ui,-apple-system,"Segoe UI",Roboto,Heebo,"Noto Sans Hebrew",Arial,sans-serif;
+          -webkit-tap-highlight-color:transparent;
+        }
+        
+        /* App layout */
+        .app{
+          display:grid; grid-template-columns: 280px 1fr; min-height:100dvh;
+        }
+        .sidebar,.content{ min-width:0; }
+        @media (max-width:1024px){
+          .app{ grid-template-columns:1fr; }
+        }
+        
+        /* Off-canvas sidebar (mobile) */
+        .sidebar{
+          background:linear-gradient(180deg,#0f1520,#0b0f14);
+          border-inline:1px solid var(--border);
+          padding:14px;
+          padding-top:calc(14px + var(--safe-top));
+          padding-right:calc(14px + var(--safe-right));
+          padding-bottom:calc(14px + var(--safe-bottom));
+          padding-left:calc(14px + var(--safe-left));
+        }
+        @media (max-width:1024px){
+          .sidebar{
+            position:fixed;
+            top:0; bottom:0; inset-inline-end:0; /* RTL: נכנס מימין */
+            width:min(88vw,360px);
+            /* סגור לגמרי – לא מציץ */
+            transform:translateX(100%);
+            opacity:0;
+            pointer-events:none;
+            transition:transform .25s ease, opacity .2s ease;
+            z-index:1001;
+            /* לא צריך גבול/צל כשהתפריט סגור, כדי שלא "יבצבץ" פיקסל */
+            border-inline:none;
+            box-shadow:none;
+            will-change:transform;
+          }
+          .sidebar.is-open{
+            transform:translateX(0);
+            opacity:1;
+            pointer-events:auto;
+            box-shadow:-24px 0 40px rgba(0,0,0,.45);
+          }
+        }
+        
+        /* Scrim (backdrop) */
+        .scrim{
+          position:fixed; inset:0; background:rgba(0,0,0,.45);
+          backdrop-filter:blur(2px);
+          z-index:1000;
+        }
+        body.no-scroll{ overflow:hidden; }
+        
+        /* Burger button */
+        .burger{
+          position:fixed;
+          top:12px; inset-inline-start:12px; /* ב־RTL זה ימין */
+          z-index:1002;
+          display:none;
+          padding:10px 14px;
+          border-radius:12px;
+          border:1px solid var(--border);
+          background:#0d1220; color:var(--text);
+          box-shadow:var(--shadow);
+          font-size:18px; line-height:1;
+        }
+        @media (max-width:1024px){ .burger{ display:inline-grid; place-items:center; } }
+        
+        .brand{
+          display:flex; align-items:center; gap:10px;
+          padding:12px 10px; border-radius:12px; background:#0d1220; border:1px solid var(--border);
+          box-shadow:var(--shadow);
+        }
+        .dot{ width:12px; height:12px; border-radius:50%;
+          background:linear-gradient(135deg,var(--accent),var(--accent-2)); box-shadow:0 0 16px var(--accent); }
+        .brand-title{ font-weight:700; }
+        .brand-sub{ color:var(--muted); }
+        
+        /* Day nav – wraps; no overflow */
+        .nav{
+          margin-top:16px; display:grid; gap:10px; width:100%;
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        }
+        @media (max-width:420px){ .nav{ grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); } }
+        .nav button{
+          all:unset; cursor:pointer; display:grid; gap:4px;
+          padding:14px 12px; border-radius:12px; background:var(--card); border:1px solid var(--border);
+          color:var(--text); box-shadow:var(--shadow); min-height:44px; text-align:center; word-break:break-word;
+        }
+        .nav button small{ color:var(--muted); }
+        .nav button.active{
+          border-color:var(--accent);
+          outline:2px solid color-mix(in oklab,var(--accent) 35%, transparent);
+          background:linear-gradient(180deg,#162033,#0f1624);
+        }
+        
+        .content{
+          padding:22px; padding-bottom:calc(22px + var(--safe-bottom));
+          max-width:1100px; margin-inline:auto; width:100%;
+        }
+        @media (max-width:1024px){ .content{ padding-top:64px; } } /* מרווח לכפתור הבורגר */
+        
+        .day-head{
+          display:grid; gap:10px; background:linear-gradient(180deg,#101826,#0c121c);
+          border:1px solid var(--border); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow);
+        }
+        .day-title{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; }
+        .title{ font-size:clamp(20px,3vw,28px); margin:0; }
+        .muscles{ color:var(--muted); font-size:14px; }
+        .nav-arrows{ display:flex; gap:8px; flex-wrap:wrap; }
+        .nav-arrows .btn{ min-width:140px; }
+        
+        .pill{
+          font-size:12px; color:var(--muted); border:1px dashed var(--border);
+          padding:6px 10px; border-radius:999px; width:fit-content;
+        }
+        
+        .exercises{ margin-top:18px; display:grid; gap:14px; }
+        .card{ background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+        .card-head{ display:grid; gap:8px; padding:14px; border-bottom:1px solid var(--border); }
+        .ex-title{ margin:0; font-size:18px; }
+        .meta{ display:flex; flex-wrap:wrap; gap:8px; font-size:13px; color:var(--muted); }
+        .meta .tag{ border:1px solid var(--border); padding:4px 8px; border-radius:8px; }
+        
+        .grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:14px; }
+        @media (max-width:900px){ .grid{ grid-template-columns:1fr; } }
+        
+        .section{ background:#0e1520; border:1px solid var(--border); border-radius:12px; padding:12px; }
+        .section h4{ margin:0 0 10px; color:var(--accent); font-size:14px; letter-spacing:.2px; }
+        .alts{ display:grid; gap:8px; }
+        .alt{
+          padding:8px 10px; border-radius:10px; background:#0c1220; border:1px solid var(--border);
+          display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;
+        }
+        .alt .kind{ font-size:12px; color:var(--muted); }
+        .alt .name{ font-weight:600; }
+        
+        .btn, .alt .btn{
+          all:unset; cursor:pointer; padding:10px 14px; border-radius:10px; border:1px solid var(--border);
+          background:#0f1724; color:var(--text); min-height:44px; text-align:center;
+        }
+        .btn.primary{ border-color:var(--accent); background:linear-gradient(180deg,#162843,#0f1f33); }
+        .btn.warn{ border-color:var(--warn); }
+        .btn.ghost{ background:transparent; }
+        
+        .feel{ font-size:13px; color:var(--muted); background:#0c121d; padding:10px; border-radius:8px; border:1px solid var(--border); }
+        
+        /* Logger */
+        .log-row{ display:grid; grid-template-columns:1fr 1fr 1fr auto; gap:10px; }
+        @media (max-width:720px){ .log-row{ grid-template-columns:1fr 1fr; } }
+        @media (max-width:420px){ .log-row{ grid-template-columns:1fr; } }
+        .log-row input{ width:100%; padding:12px; border-radius:10px; border:1px solid var(--border); background:#0a111b; color:var(--text); min-height:44px; }
+        
+        .logs-table{ width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+        .logs-table th, .logs-table td{ border-bottom:1px solid var(--border); padding:8px; text-align:start; color:#d6e4f5; word-wrap:break-word; }
+        .table-wrap{ width:100%; overflow-x:auto; }
+        .hint{ color:var(--muted); font-size:12px; }
+        
+        canvas,img,video{ max-width:100%; height:auto; display:block; }
+        
+        @media (prefers-reduced-motion:reduce){
+          *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important; }
+        }
+
